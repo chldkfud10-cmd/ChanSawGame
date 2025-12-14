@@ -413,7 +413,7 @@ def world_map():
     )
     canvas.pack(expand=True)
 
-    bg_path = os.path.join(IMG_DIR, "tokyo_bg.png")
+    bg_path = os.path.join(IMG_DIR, "stage1.png")
     if os.path.exists(bg_path):
         img = Image.open(bg_path).convert("RGBA")
         img = img.resize((W, H), Image.NEAREST)
@@ -439,10 +439,10 @@ def world_map():
     sy = H / base_h
 
     circle_positions_base = [
-        (160, 190),  # stage1
-        (520, 150),  # stage2
-        (260, 290),
-        (440, 260),
+        (260, 190),  # stage1
+        (620, 150),  # stage2
+        (360, 290),
+        (540, 260),
     ]
     circle_positions = [(int(x * sx), int(y * sy)) for (x, y) in circle_positions_base]
 
