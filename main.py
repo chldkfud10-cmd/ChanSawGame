@@ -8,9 +8,11 @@ from ui_config import *
 import game_state as gs
 
 import stage
+from stage import fit_nearest, bbox_intersect, setup_denji, show_victory, show_defeat, world_map
 import gacha
 import partner
 import save
+import random
 
 # ==========================
 # 타이틀
