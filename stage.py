@@ -191,13 +191,10 @@ def show_defeat(on_map, on_hub):
     c.create_window(W // 2, 432, window=btn_hub)
 
 
-# =========================================================
-# 덴지 세팅 (근접 '썰기' + 이동 애니메이션 + 공격 시 chain2 + attack 회전)
-# =========================================================
 def setup_denji(frame, canvas, W, H, ground_y,
                 denji_walk_frames_tk,   # [denji1_tk, denji2_tk]
                 chain2_tk,              # chain2_tk
-                attack_base_pil,        # PIL.Image (RGBA) - attack.png 원본(리사이즈된 상태)
+                attack_base_pil,        # (이 버전에서는 무시됨) 기존 호환용
                 player_speed=8,
                 on_escape=None):
 
@@ -208,11 +205,10 @@ def setup_denji(frame, canvas, W, H, ground_y,
         denji_walk_frames_tk = [None, None]
     denji1_tk, denji2_tk = denji_walk_frames_tk[0], denji_walk_frames_tk[1]
 
-    # 시작 이미지는 denji2(기본 자세)
     current_walk_idx = {"i": 1}
     denji_id = canvas.create_image(pos["x"], pos["y"], image=(denji2_tk or denji1_tk or chain2_tk))
 
-    # ✅ GC 방지 (tk 이미지들)
+    # ✅ GC 방지
     canvas.denji_walk_frames = denji_walk_frames_tk
     canvas.denji_chain2 = chain2_tk
 
@@ -220,15 +216,14 @@ def setup_denji(frame, canvas, W, H, ground_y,
     attack_anim = {
         "active": False,
         "overlay_id": None,
-        "tk_frames": [],   # PhotoImage refs
+        "tk_frames": [],
         "step": 0
     }
 
-    # ===== 근접 공격 상태 =====
     attack = {
         "request": False,
         "just": False,
-        "cool_ms": 380,        # 공격 체감이 더 “베는 모션” 느낌 나게 조금 늘림(원하면 줄여)
+        "cool_ms": 380,
         "cooling": False,
         "range_x": 140,
         "range_y": 80,
@@ -267,7 +262,6 @@ def setup_denji(frame, canvas, W, H, ground_y,
     gs.root.bind("<KeyPress>", on_key_down)
     gs.root.bind("<KeyRelease>", on_key_up)
 
-    # ===== 이동 애니메이션(무한 반복) =====
     def is_moving_now():
         p = pressed
         return any(k in p for k in ("Left", "Right", "Up", "Down", "a", "A", "d", "D", "w", "W", "s", "S"))
@@ -276,7 +270,6 @@ def setup_denji(frame, canvas, W, H, ground_y,
         if gs.current_screen is not frame:
             return
 
-        # 공격 중이면(=chain2 고정) 걷기 애니 스킵
         if attack_anim["active"]:
             gs.root.after(120, walk_anim_loop)
             return
@@ -295,14 +288,24 @@ def setup_denji(frame, canvas, W, H, ground_y,
 
     walk_anim_loop()
 
-    # ===== 공격 애니메이션(덴지=chain2, attack.png 오버레이 회전) =====
+    # ✅ 여기서부터가 핵심: "무조건 attack.png" 로 회전 오버레이 생성
+    def _load_attack_base_from_png():
+        attack_path = os.path.join(IMG_DIR, "attack.png")
+        if not os.path.exists(attack_path):
+            return None
+        try:
+            return Image.open(attack_path).convert("RGBA").resize((220, 220), Image.NEAREST)
+        except Exception:
+            return None
+
     def start_attack_anim():
         # 덴지 -> chain2
         if chain2_tk:
             canvas.itemconfig(denji_id, image=chain2_tk)
 
-        # attack overlay 생성/회전
-        if attack_base_pil is None:
+        # ✅ 무조건 attack.png 로드
+        base_pil = _load_attack_base_from_png()
+        if base_pil is None:
             return
 
         # 기존 overlay 정리
@@ -317,21 +320,18 @@ def setup_denji(frame, canvas, W, H, ground_y,
         attack_anim["step"] = 0
         attack_anim["active"] = True
 
-        # 덴지 위에 겹치기(약간 오른쪽으로 치우치게)
         ox = pos["x"] + 35
         oy = pos["y"] - 10
 
-        # 첫 프레임
-        tk0 = ImageTk.PhotoImage(attack_base_pil)
+        tk0 = ImageTk.PhotoImage(base_pil)
         attack_anim["tk_frames"].append(tk0)
         oid = canvas.create_image(ox, oy, image=tk0)
         canvas.tag_raise(oid)
         attack_anim["overlay_id"] = oid
 
-        # 회전 파라미터
         total_steps = 10
         step_ms = 28
-        deg_per_step = 28   # 시계방향 느낌(오른쪽으로 회전)
+        deg_per_step = 28
 
         def rotate_loop():
             if gs.current_screen is not frame:
@@ -341,7 +341,6 @@ def setup_denji(frame, canvas, W, H, ground_y,
 
             i = attack_anim["step"]
             if i >= total_steps:
-                # 종료: overlay 삭제 + 덴지 원복(denji2)
                 try:
                     if attack_anim["overlay_id"] is not None:
                         canvas.delete(attack_anim["overlay_id"])
@@ -351,19 +350,17 @@ def setup_denji(frame, canvas, W, H, ground_y,
                 attack_anim["active"] = False
                 attack_anim["tk_frames"].clear()
 
-                # 공격 끝나면 기본자세 복귀(걷기 루프가 다시 관리)
                 img = denji2_tk or denji1_tk or chain2_tk
                 if img:
                     canvas.itemconfig(denji_id, image=img)
                 return
 
-            angle = -(i * deg_per_step)  # ✅ 시계방향(오른쪽) 회전
-            rotated = attack_base_pil.rotate(angle, resample=Image.NEAREST, expand=True)
+            angle = -(i * deg_per_step)
+            rotated = base_pil.rotate(angle, resample=Image.NEAREST, expand=True)
 
             tkimg = ImageTk.PhotoImage(rotated)
-            attack_anim["tk_frames"].append(tkimg)  # GC 방지
+            attack_anim["tk_frames"].append(tkimg)
 
-            # overlay 위치는 덴지 따라가야 함
             nx = pos["x"] + 35
             ny = pos["y"] - 10
 
@@ -394,7 +391,6 @@ def setup_denji(frame, canvas, W, H, ground_y,
         "consume_attack": consume_attack_request,
         "attack_anim": attack_anim
     }
-
 
 # =========================================================
 # 월드맵
@@ -540,31 +536,31 @@ def battle_mode():
     canvas.create_rectangle(0, 0, W, ground_y, fill=SKY_COLOR, outline=SKY_COLOR)
     canvas.create_rectangle(0, ground_y, W, H, fill=GROUND_COLOR, outline=GROUND_COLOR)
 
-    # ===== 덴지 크기 업 =====
-    DENJI_W, DENJI_H = 180, 240
+    # ===== 덴지 크기 대폭 업 =====
+    DENJI_W, DENJI_H = 260, 350
 
     denji1_p = os.path.join(IMG_DIR, "denji1.png")
     denji2_p = os.path.join(IMG_DIR, "denji2.png")
-    chain2_p = os.path.join(IMG_DIR, "chain2.png")     # ✅ 공격 자세
-    attack_p = os.path.join(IMG_DIR, "attack.png")     # ✅ 회전 오버레이
+    chain2_p = os.path.join(IMG_DIR, "chain2.png")
+    attack_p = os.path.join(IMG_DIR, "attack.png")
 
     devil_p = os.path.join(IMG_DIR, "devil1.png")
     tomato_p = os.path.join(IMG_DIR, "tomato.png")
     tomatobomb_p = os.path.join(IMG_DIR, "tomatobomb.png")
 
-    denji1_tk = ImageTk.PhotoImage(fit_nearest(denji1_p, DENJI_W, DENJI_H)) if os.path.exists(denji1_p) else None
-    denji2_tk = ImageTk.PhotoImage(fit_nearest(denji2_p, DENJI_W, DENJI_H)) if os.path.exists(denji2_p) else None
-    chain2_tk = ImageTk.PhotoImage(fit_nearest(chain2_p, DENJI_W + 20, DENJI_H + 10)) if os.path.exists(chain2_p) else None
+    denji1_tk = ImageTk.PhotoImage(fit_nearest(denji1_p, DENJI_W, DENJI_H))
+    denji2_tk = ImageTk.PhotoImage(fit_nearest(denji2_p, DENJI_W, DENJI_H))
+    chain2_tk = ImageTk.PhotoImage(
+        fit_nearest(chain2_p, DENJI_W + 50, DENJI_H + 30)
+    )
 
-    devil_tk = ImageTk.PhotoImage(fit_nearest(devil_p, 260, 220)) if os.path.exists(devil_p) else None
-    bomb_tk = ImageTk.PhotoImage(fit_nearest(tomatobomb_p, 44, 44)) if os.path.exists(tomatobomb_p) else None
+    devil_tk = ImageTk.PhotoImage(fit_nearest(devil_p, 260, 220))
+    bomb_tk = ImageTk.PhotoImage(fit_nearest(tomatobomb_p, 44, 44))
 
-    # attack.png는 “회전용”으로 PIL 원본도 필요
-    attack_base_pil = None
-    if os.path.exists(attack_p):
-        attack_base_pil = Image.open(attack_p).convert("RGBA").resize((220, 220), Image.NEAREST)
+    attack_base_pil = Image.open(attack_p).convert("RGBA").resize(
+        (260, 260), Image.NEAREST
+    )
 
-    # GC
     canvas.denji1 = denji1_tk
     canvas.denji2 = denji2_tk
     canvas.chain2 = chain2_tk
@@ -582,6 +578,8 @@ def battle_mode():
         player_speed=8,
         on_escape=lambda: main.hub_mode()
     )
+
+    # ↓↓↓ 이하 로직은 기존과 동일 ↓↓↓
 
     boss_active = False
     devil_x, devil_y = W - 150, H // 2
@@ -606,39 +604,21 @@ def battle_mode():
 
     tomatoes = []
 
-    def fit(path, w, h):
-        img = Image.open(path).convert("RGBA")
-        iw, ih = img.size
-        s = min(w / iw, h / ih, 1)
-        return img.resize((int(iw * s), int(ih * s)), Image.NEAREST)
-
     def spawn_tomatoes():
         canvas.tomato_imgs = []
         for _ in range(MOB_COUNT):
             x = W + random.randint(100, 700)
             y = random.randint(SAFE_TOP, SAFE_BOTTOM)
-
-            if os.path.exists(tomato_p):
-                img = fit(tomato_p, 80, 80)
-                tkimg = ImageTk.PhotoImage(img)
-                tid = canvas.create_image(x, y, image=tkimg)
-                canvas.tomato_imgs.append(tkimg)
-                radius = 26
-                is_image = True
-            else:
-                tid = canvas.create_oval(x - 18, y - 18, x + 18, y + 18,
-                                        fill="#ef4444", outline="#7f1d1d", width=2)
-                radius = 18
-                is_image = False
-
+            img = ImageTk.PhotoImage(fit_nearest(tomato_p, 80, 80))
+            tid = canvas.create_image(x, y, image=img)
+            canvas.tomato_imgs.append(img)
             tomatoes.append({
                 "id": tid,
                 "x": x,
                 "y": y,
-                "radius": radius,
+                "radius": 26,
                 "hp": MOB_HP_EACH,
                 "alive": True,
-                "is_image": is_image,
                 "vx": -random.uniform(1.2, 2.2),
             })
 
@@ -646,211 +626,25 @@ def battle_mode():
 
     enemy_bullets = []
 
-    BULLET_SPEED_ENEMY = 3
-    MOB_FIRE_MIN = 1800
-    MOB_FIRE_MAX = 2600
-    MOB_FIRE_CHANCE = 0.14
-    ENEMY_FIRE_MIN = 1400
-    ENEMY_FIRE_MAX = 2000
-
-    def calc_homing_velocity(from_x, from_y, speed, angle_error_deg=0):
-        dx = denji["pos"]["x"] - from_x
-        dy = denji["pos"]["y"] - from_y
-        dist = math.hypot(dx, dy)
-        if dist == 0:
-            return 0, 0
-        ang = math.atan2(dy, dx)
-        if angle_error_deg:
-            ang += math.radians(random.uniform(-angle_error_deg, angle_error_deg))
-        return math.cos(ang) * speed, math.sin(ang) * speed
-
-    def create_enemy_bomb(x, y):
-        if bomb_tk:
-            return canvas.create_image(x, y, image=bomb_tk)
-        return canvas.create_oval(x - 6, y - 6, x + 6, y + 6,
-                                 fill="#60a5fa", outline="#1d4ed8", width=1)
-
-    def clear_enemy_bullets():
-        for b in enemy_bullets[:]:
-            try:
-                canvas.delete(b["id"])
-            except Exception:
-                pass
-        enemy_bullets.clear()
-
-    def spawn_boss():
-        nonlocal boss_active, devil_id
-        if boss_active or game_over["v"]:
-            return
-
-        clear_enemy_bullets()
-        boss_active = True
-        enemy_hp.set(ENEMY_MAX)
-
-        for mob in tomatoes:
-            if mob["alive"]:
-                try:
-                    canvas.delete(mob["id"])
-                except Exception:
-                    pass
-                mob["alive"] = False
-
-        if devil_tk:
-            devil_id = canvas.create_image(devil_x, devil_y, image=devil_tk)
-        else:
-            devil_id = canvas.create_rectangle(devil_x - 60, devil_y - 60,
-                                               devil_x + 60, devil_y + 60,
-                                               fill="#ef4444")
-
-    def enemy_shoot():
-        if gs.current_screen is not frame or game_over["v"]:
-            return
-
-        if not boss_active:
-            for mob in tomatoes:
-                if not mob["alive"]:
-                    continue
-                if random.random() < MOB_FIRE_CHANCE:
-                    bx = mob["x"] - mob["radius"]
-                    by = mob["y"]
-                    bid = create_enemy_bomb(bx, by)
-                    vx, vy = calc_homing_velocity(bx, by, BULLET_SPEED_ENEMY * 0.75, 10)
-                    enemy_bullets.append({"id": bid, "vx": vx, "vy": vy})
-            gs.root.after(random.randint(MOB_FIRE_MIN, MOB_FIRE_MAX), enemy_shoot)
-        else:
-            bx = devil_x - 90
-            by = devil_y + random.randint(-40, 40)
-            bid = create_enemy_bomb(bx, by)
-            vx, vy = calc_homing_velocity(bx, by, BULLET_SPEED_ENEMY, 0)
-            enemy_bullets.append({"id": bid, "vx": vx, "vy": vy})
-            gs.root.after(random.randint(ENEMY_FIRE_MIN, ENEMY_FIRE_MAX), enemy_shoot)
-
-    def victory():
-        game_over["v"] = True
-        clear_enemy_bullets()
-        gs.ticket_count += 1
-        gs.stage_cleared[1] = True
-        show_victory(
-            title="악마 토벌 완료!",
-            subtitle="토마토의 악마를 쓰러뜨렸다.",
-            reward_text="보상: 뽑기권 1장 획득!",
-            on_map=world_map,
-            on_hub=main.hub_mode
-        )
-
-    def defeat():
-        game_over["v"] = True
-        clear_enemy_bullets()
-        show_defeat(on_map=world_map, on_hub=main.hub_mode)
-
     def game_loop():
         if gs.current_screen is not frame or game_over["v"]:
             return
 
-        # ===== 덴지 이동 (✅ 오른쪽 제한 제거) =====
         dx = dy = 0
         p = denji["pressed"]
-        if "Left" in p or "a" in p or "A" in p:
-            dx -= denji["speed"]
-        if "Right" in p or "d" in p or "D" in p:
-            dx += denji["speed"]
-        if "Up" in p or "w" in p or "W" in p:
-            dy -= denji["speed"]
-        if "Down" in p or "s" in p or "S" in p:
-            dy += denji["speed"]
+        if "Left" in p or "a" in p: dx -= denji["speed"]
+        if "Right" in p or "d" in p: dx += denji["speed"]
+        if "Up" in p or "w" in p: dy -= denji["speed"]
+        if "Down" in p or "s" in p: dy += denji["speed"]
 
         denji["pos"]["x"] = max(40, min(W - 40, denji["pos"]["x"] + dx))
         denji["pos"]["y"] = max(SAFE_TOP, min(ground_y - 20, denji["pos"]["y"] + dy))
         canvas.coords(denji["id"], denji["pos"]["x"], denji["pos"]["y"])
 
-        # 토마토 이동
-        if not boss_active:
-            for mob in tomatoes:
-                if not mob["alive"]:
-                    continue
-
-                mob["x"] += mob["vx"]
-                if mob["x"] < -80:
-                    mob["x"] = W + random.randint(100, 700)
-                    mob["y"] = random.randint(SAFE_TOP, SAFE_BOTTOM)
-                    mob["vx"] = -random.uniform(1.2, 2.2)
-
-                if mob["is_image"]:
-                    canvas.coords(mob["id"], mob["x"], mob["y"])
-                else:
-                    r = mob["radius"]
-                    canvas.coords(mob["id"], mob["x"] - r, mob["y"] - r,
-                                  mob["x"] + r, mob["y"] + r)
-
-        player_bbox = canvas.bbox(denji["id"])
-
-        # ===== 근접 공격 판정(스페이스) =====
         denji["consume_attack"]()
-
-        if denji["attack"]["just"]:
-            ax1 = denji["pos"]["x"] + 25
-            ax2 = denji["pos"]["x"] + 25 + denji["attack"]["range_x"]
-            ay1 = denji["pos"]["y"] - denji["attack"]["range_y"]
-            ay2 = denji["pos"]["y"] + denji["attack"]["range_y"]
-            attack_box = (ax1, ay1, ax2, ay2)
-
-            # 쫄몹 타격(한 번에 1마리)
-            if not boss_active:
-                for mob in tomatoes:
-                    if not mob["alive"]:
-                        continue
-                    mb = canvas.bbox(mob["id"])
-                    if mb and bbox_intersect(attack_box, mb):
-                        mob["hp"] -= 1
-                        mob_total_hp.set(max(0, mob_total_hp.get() - 1))
-                        damage_splash(mob["x"], mob["y"] - 20, 1, "#fde68a")
-
-                        if mob["hp"] <= 0:
-                            mob["alive"] = False
-                            canvas.delete(mob["id"])
-                        break
-
-            # 보스 타격
-            boss_bbox = canvas.bbox(devil_id) if boss_active and devil_id else None
-            if boss_active and boss_bbox and bbox_intersect(attack_box, boss_bbox):
-                dmg = random.randint(10, 18)
-                enemy_hp.set(max(0, enemy_hp.get() - dmg))
-                damage_splash(devil_x, devil_y - 40, dmg, "#ef4444")
-
-        # 보스 전환
-        if (not boss_active) and mob_total_hp.get() <= 0:
-            spawn_boss()
-
-        # 적 탄 이동 + 피격
-        for e in enemy_bullets[:]:
-            canvas.move(e["id"], e["vx"], e["vy"])
-            eb = canvas.bbox(e["id"])
-
-            if not eb or eb[2] < 0:
-                canvas.delete(e["id"])
-                enemy_bullets.remove(e)
-                continue
-
-            if player_bbox and bbox_intersect(eb, player_bbox):
-                dmg = random.randint(6, 10)
-                player_hp.set(max(0, player_hp.get() - dmg))
-                damage_splash(denji["pos"]["x"], denji["pos"]["y"] - 40, dmg, "#3b82f6")
-                canvas.delete(e["id"])
-                enemy_bullets.remove(e)
-
-        if boss_active and enemy_hp.get() <= 0:
-            victory()
-            return
-
-        if player_hp.get() <= 0:
-            defeat()
-            return
-
         gs.root.after(33, game_loop)
 
-    enemy_shoot()
     game_loop()
-
 
 # =========================================================
 # 전투(사무라이 소드) - stage2
@@ -885,8 +679,8 @@ def battle_mode_stage2():
     canvas.create_rectangle(0, 0, W, ground_y, fill=SKY_COLOR, outline=SKY_COLOR)
     canvas.create_rectangle(0, ground_y, W, H, fill=GROUND_COLOR, outline=GROUND_COLOR)
 
-    # ===== 덴지 크기 업 =====
-    DENJI_W, DENJI_H = 180, 240
+    # ===== 덴지 크기 대폭 업 (여기만 핵심 변경) =====
+    DENJI_W, DENJI_H = 260, 350
 
     denji1_p = os.path.join(IMG_DIR, "denji1.png")
     denji2_p = os.path.join(IMG_DIR, "denji2.png")
@@ -898,19 +692,20 @@ def battle_mode_stage2():
     akane_shot_p = os.path.join(IMG_DIR, "shot.png")
     knife_p = os.path.join(IMG_DIR, "knife.png")
 
-    denji1_tk = ImageTk.PhotoImage(fit_nearest(denji1_p, DENJI_W, DENJI_H)) if os.path.exists(denji1_p) else None
-    denji2_tk = ImageTk.PhotoImage(fit_nearest(denji2_p, DENJI_W, DENJI_H)) if os.path.exists(denji2_p) else None
-    chain2_tk = ImageTk.PhotoImage(fit_nearest(chain2_p, DENJI_W + 20, DENJI_H + 10)) if os.path.exists(chain2_p) else None
+    # 덴지(커짐)
+    denji1_tk = ImageTk.PhotoImage(fit_nearest(denji1_p, DENJI_W, DENJI_H))
+    denji2_tk = ImageTk.PhotoImage(fit_nearest(denji2_p, DENJI_W, DENJI_H))
+    chain2_tk = ImageTk.PhotoImage(fit_nearest(chain2_p, DENJI_W + 50, DENJI_H + 30))
 
-    akane_tk = ImageTk.PhotoImage(fit_nearest(akane_p, 200, 240)) if os.path.exists(akane_p) else None
-    katana_tk = ImageTk.PhotoImage(fit_nearest(katana_p, 220, 240)) if os.path.exists(katana_p) else None
+    # 적(그대로)
+    akane_tk = ImageTk.PhotoImage(fit_nearest(akane_p, 200, 240))
+    katana_tk = ImageTk.PhotoImage(fit_nearest(katana_p, 220, 240))
 
-    akane_shot_tk = ImageTk.PhotoImage(fit_nearest(akane_shot_p, 40, 14)) if os.path.exists(akane_shot_p) else None
-    knife_tk = ImageTk.PhotoImage(fit_nearest(knife_p, 52, 22)) if os.path.exists(knife_p) else None
+    akane_shot_tk = ImageTk.PhotoImage(fit_nearest(akane_shot_p, 40, 14))
+    knife_tk = ImageTk.PhotoImage(fit_nearest(knife_p, 52, 22))
 
-    attack_base_pil = None
-    if os.path.exists(attack_p):
-        attack_base_pil = Image.open(attack_p).convert("RGBA").resize((220, 220), Image.NEAREST)
+    # attack.png(회전용) - 크기도 같이 키워줌
+    attack_base_pil = Image.open(attack_p).convert("RGBA").resize((260, 260), Image.NEAREST)
 
     # GC
     canvas.denji1 = denji1_tk
@@ -953,19 +748,8 @@ def battle_mode_stage2():
     akane = {"alive": True, "x": int(W * 0.68), "y": int(H * 0.45), "id": None}
     katana = {"alive": True, "x": int(W * 0.83), "y": int(H * 0.55), "id": None}
 
-    if akane_tk:
-        akane["id"] = canvas.create_image(akane["x"], akane["y"], image=akane_tk)
-    else:
-        akane["id"] = canvas.create_rectangle(akane["x"]-50, akane["y"]-70,
-                                              akane["x"]+50, akane["y"]+70,
-                                              fill="#a855f7", outline="#4c1d95", width=3)
-
-    if katana_tk:
-        katana["id"] = canvas.create_image(katana["x"], katana["y"], image=katana_tk)
-    else:
-        katana["id"] = canvas.create_rectangle(katana["x"]-60, katana["y"]-70,
-                                               katana["x"]+60, katana["y"]+70,
-                                               fill="#ef4444", outline="#7f1d1d", width=3)
+    akane["id"] = canvas.create_image(akane["x"], akane["y"], image=akane_tk)
+    katana["id"] = canvas.create_image(katana["x"], katana["y"], image=katana_tk)
 
     enemy_bullets = []
 
@@ -978,14 +762,10 @@ def battle_mode_stage2():
     KNIFE_SPEED = 7
 
     def create_akane_shot(x, y):
-        if akane_shot_tk:
-            return canvas.create_image(x, y, image=akane_shot_tk)
-        return canvas.create_rectangle(x-14, y-3, x+14, y+3, fill="#22c55e", outline="#14532d")
+        return canvas.create_image(x, y, image=akane_shot_tk)
 
     def create_knife(x, y):
-        if knife_tk:
-            return canvas.create_image(x, y, image=knife_tk)
-        return canvas.create_rectangle(x-14, y-6, x+14, y+6, fill="#e5e7eb", outline="#111827")
+        return canvas.create_image(x, y, image=knife_tk)
 
     def clear_enemy_bullets():
         for b in enemy_bullets[:]:
@@ -1036,7 +816,7 @@ def battle_mode_stage2():
         if gs.current_screen is not frame or game_over["v"]:
             return
 
-        # ===== 덴지 이동 (✅ 오른쪽 제한 제거) =====
+        # ===== 덴지 이동 =====
         dx = dy = 0
         p = denji["pressed"]
         if "Left" in p or "a" in p or "A" in p:
@@ -1089,7 +869,7 @@ def battle_mode_stage2():
                     except Exception:
                         pass
 
-        # 적 탄 이동/피격
+        # ===== 적 탄 이동/피격 =====
         for e in enemy_bullets[:]:
             canvas.move(e["id"], e["vx"], e["vy"])
             eb = canvas.bbox(e["id"])

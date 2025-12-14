@@ -29,8 +29,258 @@ def title_screen():
     )
     canvas.pack(expand=True)
 
-    # 배경
-    bg_path = os.path.join(IMG_DIR, "back2.png")
+    # 배경def battle_mode_stage2():
+    import main
+    gs.reset_binds()
+    gs.clear_screen()
+
+    frame = tk.Frame(gs.root, bg=ROOT_BG)
+    frame.pack(fill="both", expand=True)
+    gs.current_screen = frame
+
+    W, H = ROOT_W, ROOT_H
+    ground_y = H - 80
+
+    PLAYER_MAX = 110
+    AKANE_MAX = 90
+    KATANA_MAX = 110
+
+    player_hp = tk.IntVar(value=PLAYER_MAX)
+    akane_hp = tk.IntVar(value=AKANE_MAX)
+    katana_hp = tk.IntVar(value=KATANA_MAX)
+
+    canvas = tk.Canvas(
+        frame, width=W, height=H,
+        bg=GAME_BG, highlightthickness=4,
+        highlightbackground=PANEL_BORDER
+    )
+    canvas.pack(expand=True)
+
+    canvas.create_rectangle(0, 0, W, ground_y, fill=SKY_COLOR, outline=SKY_COLOR)
+    canvas.create_rectangle(0, ground_y, W, H, fill=GROUND_COLOR, outline=GROUND_COLOR)
+
+    # ===== 덴지 크기 대폭 업 (여기만 핵심 변경) =====
+    DENJI_W, DENJI_H = 260, 350
+
+    denji1_p = os.path.join(IMG_DIR, "denji1.png")
+    denji2_p = os.path.join(IMG_DIR, "denji2.png")
+    chain2_p = os.path.join(IMG_DIR, "chain2.png")
+    attack_p = os.path.join(IMG_DIR, "attack.png")
+
+    akane_p = os.path.join(IMG_DIR, "akane.png")
+    katana_p = os.path.join(IMG_DIR, "katana.png")
+    akane_shot_p = os.path.join(IMG_DIR, "shot.png")
+    knife_p = os.path.join(IMG_DIR, "knife.png")
+
+    # 덴지(커짐)
+    denji1_tk = ImageTk.PhotoImage(fit_nearest(denji1_p, DENJI_W, DENJI_H))
+    denji2_tk = ImageTk.PhotoImage(fit_nearest(denji2_p, DENJI_W, DENJI_H))
+    chain2_tk = ImageTk.PhotoImage(fit_nearest(chain2_p, DENJI_W + 50, DENJI_H + 30))
+
+    # 적(그대로)
+    akane_tk = ImageTk.PhotoImage(fit_nearest(akane_p, 200, 240))
+    katana_tk = ImageTk.PhotoImage(fit_nearest(katana_p, 220, 240))
+
+    akane_shot_tk = ImageTk.PhotoImage(fit_nearest(akane_shot_p, 40, 14))
+    knife_tk = ImageTk.PhotoImage(fit_nearest(knife_p, 52, 22))
+
+    # attack.png(회전용) - 크기도 같이 키워줌
+    attack_base_pil = Image.open(attack_p).convert("RGBA").resize((260, 260), Image.NEAREST)
+
+    # GC
+    canvas.denji1 = denji1_tk
+    canvas.denji2 = denji2_tk
+    canvas.chain2 = chain2_tk
+    canvas.attack_base = attack_base_pil
+    canvas.akane = akane_tk
+    canvas.katana = katana_tk
+    canvas.akane_shot = akane_shot_tk
+    canvas.knife = knife_tk
+
+    game_over = {"v": False}
+
+    denji = setup_denji(
+        frame, canvas, W, H, ground_y,
+        denji_walk_frames_tk=[denji1_tk, denji2_tk],
+        chain2_tk=chain2_tk,
+        attack_base_pil=attack_base_pil,
+        player_speed=8,
+        on_escape=lambda: main.hub_mode()
+    )
+
+    SAFE_TOP = 60
+    SAFE_BOTTOM = ground_y - 20
+
+    def damage_splash(cx, cy, val, color):
+        t = canvas.create_text(cx, cy, text=f"-{val}", fill=color,
+                               font=("Courier New", 14, "bold"))
+
+        def anim(step=0):
+            if gs.current_screen is not frame:
+                return
+            if step < 14:
+                canvas.move(t, 0, -2)
+                gs.root.after(40, anim, step + 1)
+            else:
+                canvas.delete(t)
+        anim()
+
+    akane = {"alive": True, "x": int(W * 0.68), "y": int(H * 0.45), "id": None}
+    katana = {"alive": True, "x": int(W * 0.83), "y": int(H * 0.55), "id": None}
+
+    akane["id"] = canvas.create_image(akane["x"], akane["y"], image=akane_tk)
+    katana["id"] = canvas.create_image(katana["x"], katana["y"], image=katana_tk)
+
+    enemy_bullets = []
+
+    AKANE_FIRE_MIN = 1600
+    AKANE_FIRE_MAX = 2400
+    AKANE_BULLET_SPEED = 9
+
+    KATANA_FIRE_MIN = 1200
+    KATANA_FIRE_MAX = 2000
+    KNIFE_SPEED = 7
+
+    def create_akane_shot(x, y):
+        return canvas.create_image(x, y, image=akane_shot_tk)
+
+    def create_knife(x, y):
+        return canvas.create_image(x, y, image=knife_tk)
+
+    def clear_enemy_bullets():
+        for b in enemy_bullets[:]:
+            try:
+                canvas.delete(b["id"])
+            except Exception:
+                pass
+        enemy_bullets.clear()
+
+    def akane_attack():
+        if gs.current_screen is not frame or game_over["v"] or not akane["alive"]:
+            return
+        y = random.randint(SAFE_TOP, SAFE_BOTTOM)
+        x = W + 30
+        bid = create_akane_shot(x, y)
+        enemy_bullets.append({"id": bid, "vx": -AKANE_BULLET_SPEED, "vy": 0})
+        gs.root.after(random.randint(AKANE_FIRE_MIN, AKANE_FIRE_MAX), akane_attack)
+
+    def katana_attack():
+        if gs.current_screen is not frame or game_over["v"] or not katana["alive"]:
+            return
+        y = katana["y"] + random.randint(-70, 70)
+        y = max(SAFE_TOP, min(SAFE_BOTTOM, y))
+        x = katana["x"] - 80
+        bid = create_knife(x, y)
+        enemy_bullets.append({"id": bid, "vx": -KNIFE_SPEED, "vy": 0})
+        gs.root.after(random.randint(KATANA_FIRE_MIN, KATANA_FIRE_MAX), katana_attack)
+
+    def victory():
+        game_over["v"] = True
+        clear_enemy_bullets()
+        gs.ticket_count += 1
+        gs.stage_cleared[2] = True
+        show_victory(
+            title="악마 토벌 완료!",
+            subtitle="아카네와 카타나맨을 쓰러뜨렸다.",
+            reward_text="보상: 뽑기권 1장 획득!",
+            on_map=world_map,
+            on_hub=main.hub_mode
+        )
+
+    def defeat():
+        game_over["v"] = True
+        clear_enemy_bullets()
+        show_defeat(on_map=world_map, on_hub=main.hub_mode)
+
+    def game_loop():
+        if gs.current_screen is not frame or game_over["v"]:
+            return
+
+        # ===== 덴지 이동 =====
+        dx = dy = 0
+        p = denji["pressed"]
+        if "Left" in p or "a" in p or "A" in p:
+            dx -= denji["speed"]
+        if "Right" in p or "d" in p or "D" in p:
+            dx += denji["speed"]
+        if "Up" in p or "w" in p or "W" in p:
+            dy -= denji["speed"]
+        if "Down" in p or "s" in p or "S" in p:
+            dy += denji["speed"]
+
+        denji["pos"]["x"] = max(40, min(W - 40, denji["pos"]["x"] + dx))
+        denji["pos"]["y"] = max(SAFE_TOP, min(ground_y - 20, denji["pos"]["y"] + dy))
+        canvas.coords(denji["id"], denji["pos"]["x"], denji["pos"]["y"])
+
+        player_bbox = canvas.bbox(denji["id"])
+
+        # ===== 근접 공격 판정(스페이스) =====
+        denji["consume_attack"]()
+
+        if denji["attack"]["just"]:
+            ax1 = denji["pos"]["x"] + 25
+            ax2 = denji["pos"]["x"] + 25 + denji["attack"]["range_x"]
+            ay1 = denji["pos"]["y"] - denji["attack"]["range_y"]
+            ay2 = denji["pos"]["y"] + denji["attack"]["range_y"]
+            attack_box = (ax1, ay1, ax2, ay2)
+
+            akane_bbox = canvas.bbox(akane["id"]) if akane["alive"] else None
+            katana_bbox = canvas.bbox(katana["id"]) if katana["alive"] else None
+
+            if akane["alive"] and akane_bbox and bbox_intersect(attack_box, akane_bbox):
+                dmg = random.randint(10, 16)
+                akane_hp.set(max(0, akane_hp.get() - dmg))
+                damage_splash(akane["x"], akane["y"] - 60, dmg, "#a855f7")
+                if akane_hp.get() <= 0:
+                    akane["alive"] = False
+                    try:
+                        canvas.delete(akane["id"])
+                    except Exception:
+                        pass
+
+            if katana["alive"] and katana_bbox and bbox_intersect(attack_box, katana_bbox):
+                dmg = random.randint(10, 16)
+                katana_hp.set(max(0, katana_hp.get() - dmg))
+                damage_splash(katana["x"], katana["y"] - 60, dmg, "#ef4444")
+                if katana_hp.get() <= 0:
+                    katana["alive"] = False
+                    try:
+                        canvas.delete(katana["id"])
+                    except Exception:
+                        pass
+
+        # ===== 적 탄 이동/피격 =====
+        for e in enemy_bullets[:]:
+            canvas.move(e["id"], e["vx"], e["vy"])
+            eb = canvas.bbox(e["id"])
+
+            if not eb or eb[2] < -50:
+                canvas.delete(e["id"])
+                enemy_bullets.remove(e)
+                continue
+
+            if player_bbox and bbox_intersect(eb, player_bbox):
+                dmg = random.randint(6, 10)
+                player_hp.set(max(0, player_hp.get() - dmg))
+                damage_splash(denji["pos"]["x"], denji["pos"]["y"] - 40, dmg, "#3b82f6")
+                canvas.delete(e["id"])
+                enemy_bullets.remove(e)
+
+        if player_hp.get() <= 0:
+            defeat()
+            return
+
+        if (not akane["alive"]) and (not katana["alive"]):
+            victory()
+            return
+
+        gs.root.after(33, game_loop)
+
+    akane_attack()
+    katana_attack()
+    game_loop()
+
+    bg_path = os.path.join(IMG_DIR, "back1.png")
     if os.path.exists(bg_path):
         img = Image.open(bg_path).convert("RGBA")
         img = img.resize((ROOT_W, ROOT_H), Image.NEAREST)
