@@ -164,10 +164,8 @@ def story_mode():
 
     if os.path.exists(denji_p):
         denji_img = fit_soft(denji_p, 1500, 500)
-        denji_img = denji_img.transpose(Image.FLIP_TOP_BOTTOM)  # ✅ 세로(위아래) 반전
     else:
         denji_img = Image.new("RGBA", (160, 240), (200, 200, 200, 255))
-        denji_img = denji_img.transpose(Image.FLIP_TOP_BOTTOM)
 
     if os.path.exists(makima_p):
         makima_img = fit_soft(makima_p, 1500, 500)
@@ -282,21 +280,20 @@ def hub_mode():
     )
 
     # ==========================
-    # 이미지 메뉴 버튼 4개
+    # 이미지 메뉴 버튼 3개
     # ==========================
     button_configs = [
         {"img": "stagebutton.png", "label": "스테이지 밀기"},
         {"img": "gachabutton.png", "label": "뽑기"},
-        {"img": "friendbutton.png", "label": "동료 보기"},
-        {"img": "savebutton.png", "label": "저장"}
+        {"img": "friendbutton.png", "label": "동료 보기"}
     ]
     
     btn_infos = []
     button_images = []  # 이미지 참조 유지용
     
-    base_y = int(H * 0.86)
-    gap = int(W * 0.17)
-    button_size = 80  # 버튼 이미지 크기
+    base_y = int(H * 0.8)
+    gap = int(W * 0.25)
+    button_size = 100  # 버튼 이미지 크기
 
     ACCENT = "#facc15"
     TXT_NORMAL = "#cbd5e1"
@@ -305,7 +302,7 @@ def hub_mode():
 
     # 버튼 이미지 로드 및 배치
     for i, config in enumerate(button_configs):
-        cx = W // 2 + int((i - 1.5) * gap)
+        cx = W // 2 + int((i - 1) * gap)
         button_path = os.path.join(IMG_DIR, config["img"])
         
         if os.path.exists(button_path):
@@ -392,14 +389,10 @@ def hub_mode():
             ok = safe_call(gacha, ["gacha_mode"])
             if not ok:
                 canvas.itemconfig(status_text, text="마키마: gacha_mode()가 없어. gacha.py 확인해줘.")
-        elif selected == 2:
+        else:  # selected == 2
             ok = safe_call(partner, ["allies_room", "partner_room", "partner_mode", "partner_screen"])
             if not ok:
                 canvas.itemconfig(status_text, text="마키마: 동료 보기 함수명을 못 찾았어 (partner 모듈 확인).")
-        else:
-            ok = safe_call(save, ["save_mode", "save_game", "open_save"])
-            if not ok:
-                canvas.itemconfig(status_text, text="마키마: 저장 기능은 아직 준비 중이야.")
 
     def on_key(e):
         nonlocal selected
