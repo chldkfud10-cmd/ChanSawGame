@@ -146,18 +146,36 @@ def gacha_mode():
         canvas.itemconfig(result_text, text="또 뽑고 싶으면 한 번 더 눌러봐.")
 
     # ==========================
-    # 버튼들 (캔버스에 올릴 거라 pack 절대 안 함)
+    # 뒤로가기 버튼 (텍스트만)
     # ==========================
-    back_btn = tk.Button(
-        frame,
+    back_text = canvas.create_text(
+        20, 20,
         text="← 마키마에게",
         font=PIXEL_FONT,
-        relief="solid", bd=3,
-        bg="#111827", fg="#f9fafb",
-        activebackground="#1f2937",
-        command=main.hub_mode
+        fill="#f9fafb",
+        anchor="nw"
     )
+    
+    def on_back_click(_event=None):
+        if gs.current_screen is not frame:
+            return
+        main.hub_mode()
+    
+    canvas.tag_bind(back_text, "<Button-1>", on_back_click)
+    
+    # 호버 효과
+    def on_back_enter(_event=None):
+        canvas.itemconfig(back_text, fill="#cbd5e1")
+    
+    def on_back_leave(_event=None):
+        canvas.itemconfig(back_text, fill="#f9fafb")
+    
+    canvas.tag_bind(back_text, "<Enter>", on_back_enter)
+    canvas.tag_bind(back_text, "<Leave>", on_back_leave)
 
+    # ==========================
+    # 뽑기 버튼
+    # ==========================
     draw_btn = tk.Button(
         frame,
         text="뽑기!",
@@ -169,5 +187,4 @@ def gacha_mode():
     )
 
     # ✅ 중요: 캔버스 위젯들은 "맨 마지막에" 올려야 안 가려짐
-    canvas.create_window(20, 20, window=back_btn, anchor="nw")              # 좌상단
     canvas.create_window(W // 2, H - 55, window=draw_btn, anchor="center")  # 하단 중앙
